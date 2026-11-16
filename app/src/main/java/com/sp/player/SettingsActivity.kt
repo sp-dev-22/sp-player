@@ -1,16 +1,15 @@
 package com.sp.player
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.SwitchCompat
 import com.sp.player.player.Prefs
+import com.sp.player.ui.ThemeTint
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -18,6 +17,8 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v1.2.0: theme variant for the chosen accent, before inflating.
+        setTheme(ThemeTint.themeFor(Prefs.accent(this)))
         setContentView(R.layout.activity_settings)
 
         selectedColorText = findViewById(R.id.selected_color_text)
@@ -26,12 +27,21 @@ class SettingsActivity : AppCompatActivity() {
             findViewById<Button>(R.id.swatch_pink) to Prefs.ACCENT_PINK,
             findViewById<Button>(R.id.swatch_blue) to Prefs.ACCENT_BLUE,
             findViewById<Button>(R.id.swatch_green) to Prefs.ACCENT_GREEN,
-            findViewById<Button>(R.id.swatch_orange) to Prefs.ACCENT_ORANGE
+            findViewById<Button>(R.id.swatch_orange) to Prefs.ACCENT_ORANGE,
+            findViewById<Button>(R.id.swatch_rainbow) to Prefs.ACCENT_RAINBOW
         )
+        // Rainbow swatch shows the gradient (set in code — XML gradients
+        // only support three stops).
+        findViewById<Button>(R.id.swatch_rainbow).background =
+            ThemeTint.rainbowDrawable()
         for ((button, color) in swatches) {
             button.setOnClickListener {
-                Prefs.setAccent(this, color)
-                refreshSelectedColor()
+                if (Prefs.accent(this) != color) {
+                    Prefs.setAccent(this, color)
+                    // v1.2.0: recreate so the whole screen (switch,
+                    // radios, buttons) shows the new theme at once.
+                    recreate()
+                }
             }
         }
         refreshSelectedColor()
@@ -58,17 +68,6 @@ class SettingsActivity : AppCompatActivity() {
         bgVideoSwitch.isChecked = Prefs.bgVideo(this)
         bgVideoSwitch.setOnCheckedChangeListener { _, checked ->
             Prefs.setBgVideo(this, checked)
-        }
-
-        // Download YT Video & Audio (v1.1.1): third-party site, opened in
-        // the browser — the app itself stays fully offline (intent only).
-        findViewById<Button>(R.id.genyt_button).setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://genyt.net"))
-            try {
-                startActivity(intent)
-            } catch (_: android.content.ActivityNotFoundException) {
-                Toast.makeText(this, "No browser found", Toast.LENGTH_SHORT).show()
-            }
         }
 
         // Support page (v1.1.1).

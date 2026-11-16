@@ -123,6 +123,8 @@ class PlayerActivity : AppCompatActivity() {
         // Effective mode: a video in audio-only mode shows the audio panel.
         isVideoMode = PlayerManager.isEffectiveVideo
         PlayerManager.setActiveSleepMode(isVideoMode)
+        // v1.2.0: theme variant for the chosen accent, before inflating.
+        setTheme(ThemeTint.themeFor(Prefs.accent(this)))
         setContentView(R.layout.activity_player)
         onBackPressedDispatcher.addCallback(this, backCallback)
 
@@ -177,8 +179,18 @@ class PlayerActivity : AppCompatActivity() {
             playerView.findViewById<View>(R.id.btn_lock_video)?.setOnClickListener {
                 setLocked(true)
             }
-            playerView.findViewById<View>(R.id.btn_pip_video)?.setOnClickListener {
-                enterPip()
+            // v1.2.0: auto-hide the PiP button when the device doesn't
+            // support PiP at all (e.g. this phone's Android 12 Go
+            // firmware) — no dead button. enterPip() keeps its own
+            // checks for devices where the button shows but PiP is off.
+            val pipButton = playerView.findViewById<View>(R.id.btn_pip_video)
+            if (packageManager.hasSystemFeature(
+                    PackageManager.FEATURE_PICTURE_IN_PICTURE
+                )
+            ) {
+                pipButton?.setOnClickListener { enterPip() }
+            } else {
+                pipButton?.visibility = View.GONE
             }
             // Media3's own fullscreen hook: setting a listener is also what
             // makes the fullscreen button VISIBLE (PlayerControlView hides
