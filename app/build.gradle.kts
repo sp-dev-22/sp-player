@@ -1,3 +1,4 @@
+import java.util.Base64
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -61,7 +62,10 @@ val keystoreB64File = rootDir.resolve("debug.keystore.b64")
 tasks.register("restoreDebugKeystore") {
     doLast {
         if (!keystoreFile.exists() && keystoreB64File.exists()) {
-            val bytes = java.util.Base64.getDecoder().decode(keystoreB64File.readText().trim())
+            // NOTE: fully-qualified java.util.Base64 does NOT compile in a
+            // Kotlin DSL script — `java` is shadowed by the script's implicit
+            // `java` extension, so `util` is "unresolved". Import it instead.
+            val bytes = Base64.getDecoder().decode(keystoreB64File.readText().trim())
             keystoreFile.writeBytes(bytes)
             logger.lifecycle("Restored debug.keystore from debug.keystore.b64")
         }
