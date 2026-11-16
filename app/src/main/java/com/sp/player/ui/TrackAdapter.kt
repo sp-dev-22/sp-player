@@ -2,6 +2,8 @@ package com.sp.player.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.util.Size
 import android.view.LayoutInflater
@@ -11,6 +13,8 @@ import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.TextView
 import com.sp.player.R
+import com.sp.player.player.PlayerManager
+import com.sp.player.player.Prefs
 import com.sp.player.player.Track
 import com.sp.player.player.formatDuration
 import com.sp.player.player.formatSize
@@ -32,6 +36,7 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
 
     private val inflater = LayoutInflater.from(context)
     private val appContext = context.applicationContext
+    private val defaultTitleColor = ThemeTint.textPrimary(context)
 
     override fun getCount(): Int = items.size
     override fun getItem(position: Int): Any = items[position]
@@ -62,6 +67,20 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
         } else {
             holder.thumb.tag = null
             holder.thumb.setImageResource(R.drawable.ic_music)
+        }
+        // Now-playing highlight: accent-tinted row + accent bold title.
+        // Rows are recycled, so the else branch must reset both every time.
+        if (PlayerManager.current?.key == track.key) {
+            val ctx = view.context
+            view.setBackgroundColor(
+                ThemeTint.accentBackground(ctx, Prefs.accent(ctx), 0.16f)
+            )
+            holder.title.setTextColor(Prefs.accent(ctx))
+            holder.title.setTypeface(null, Typeface.BOLD)
+        } else {
+            view.setBackgroundColor(Color.TRANSPARENT)
+            holder.title.setTextColor(defaultTitleColor)
+            holder.title.setTypeface(null, Typeface.NORMAL)
         }
         return view
     }
