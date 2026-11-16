@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -54,6 +55,16 @@ class PlayerActivity : AppCompatActivity() {
     private var isFullscreen = false
     private var isVideoMode = false
     private var userSeeking = false
+
+    // Back in fullscreen exits fullscreen first (instead of leaving the
+    // player). It goes through the fullscreen button itself so Media3's
+    // internal fullscreen state stays in sync with ours.
+    private val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            val btn = playerView.findViewById<View>(R.id.exo_fullscreen)
+            if (btn != null) btn.performClick() else setFullscreen(false)
+        }
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private val progressUpdater = object : Runnable {
@@ -97,6 +108,7 @@ class PlayerActivity : AppCompatActivity() {
         }
         isVideoMode = track.isVideo
         setContentView(R.layout.activity_player)
+        onBackPressedDispatcher.addCallback(this, backCallback)
 
         playerView = findViewById(R.id.player_view)
         gestureHint = findViewById(R.id.gesture_hint)
@@ -138,8 +150,14 @@ class PlayerActivity : AppCompatActivity() {
             playerView.findViewById<Button>(R.id.btn_subtitle_video)?.setOnClickListener {
                 subtitlePicker.launch(arrayOf("*/*"))
             }
-            playerView.findViewById<View>(R.id.exo_fullscreen)?.setOnClickListener {
-                toggleFullscreen()
+            // Media3's own fullscreen hook: setting a listener is also what
+            // makes the fullscreen button VISIBLE (PlayerControlView hides
+            // it until a listener is set — v1.0.1 bug: no button at all).
+            // Media3 toggles its internal state and passes the NEW state;
+            // never set our own click listener on exo_fullscreen (it would
+            // overwrite Media3's and break the icon toggle).
+            playerView.setFullscreenButtonClickListener { enter ->
+                setFullscreen(enter)
             }
             setupGestures()
         } else {
@@ -333,10 +351,14 @@ class PlayerActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun toggleFullscreen() {
-        isFullscreen = !isFullscreen
+    // Fullscreen state comes from Media3's fullscreen-button callback
+    // (the NEW state after the tap), never from toggling our own field.
+    private fun setFullscreen(enter: Boolean) {
+        if (enter == isFullscreen) return
+        isFullscreen = enter
+        backCallback.isEnabled = enter
         val controller = WindowInsetsControllerCompat(window, window.decorView)
-        if (isFullscreen) {
+        if (enter) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
