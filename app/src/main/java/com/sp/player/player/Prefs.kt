@@ -50,4 +50,11 @@ object Prefs {
     fun setSpeed(context: Context, speed: Float) {
         prefs(context).edit().putFloat("speed", speed).apply()
     }
+
+    /** Background play video (v1.1.0): keep a video's audio playing when the
+     *  app backgrounds. Default ON. */
+    fun bgVideo(context: Context): Boolean = prefs(context).getBoolean("bg_video", true)
+    fun setBgVideo(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean("bg_video", enabled).apply()
+    }
 }

@@ -10,6 +10,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
+import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.TextView
 import com.sp.player.R
@@ -37,6 +38,11 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
     private val inflater = LayoutInflater.from(context)
     private val appContext = context.applicationContext
     private val defaultTitleColor = ThemeTint.textPrimary(context)
+
+    /** Select mode (v1.1.0): set by MainActivity; rows show a checkbox bound
+     *  to [selection] (track keys, stable across sort/filter). */
+    var selectMode: Boolean = false
+    var selection: Set<String> = emptySet()
 
     override fun getCount(): Int = items.size
     override fun getItem(position: Int): Any = items[position]
@@ -82,6 +88,9 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
             holder.title.setTextColor(defaultTitleColor)
             holder.title.setTypeface(null, Typeface.NORMAL)
         }
+        // Select-mode checkbox (recycled rows: set both branches every time).
+        holder.selectBox.visibility = if (selectMode) View.VISIBLE else View.GONE
+        holder.selectBox.isChecked = selection.contains(track.key)
         return view
     }
 
@@ -114,5 +123,6 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
         val thumb: ImageView = view.findViewById(R.id.track_thumb)
         val title: TextView = view.findViewById(R.id.track_title)
         val subtitle: TextView = view.findViewById(R.id.track_subtitle)
+        val selectBox: CheckBox = view.findViewById(R.id.track_select)
     }
 }

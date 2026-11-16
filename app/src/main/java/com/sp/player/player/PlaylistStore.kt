@@ -24,6 +24,20 @@ object PlaylistStore {
         }
     }
 
+    /** Add several tracks in one save. Returns how many were newly added. */
+    fun addAll(context: Context, tracks: List<Track>): Int {
+        val list = entries(context).toMutableList()
+        var added = 0
+        for (track in tracks) {
+            if (!list.contains(track.key)) {
+                list.add(track.key)
+                added++
+            }
+        }
+        if (added > 0) save(context, list)
+        return added
+    }
+
     fun remove(context: Context, track: Track) {
         val list = entries(context).toMutableList()
         if (list.remove(track.key)) save(context, list)

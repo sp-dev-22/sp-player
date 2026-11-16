@@ -61,6 +61,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sortButton: Button
     private lateinit var settingsButton: Button
     private lateinit var emptyText: TextView
+    private lateinit var selectBar: LinearLayout
+    private lateinit var selectAddButton: Button
+    private lateinit var selectCancelButton: Button
 
     private var mode = Mode.MUSIC
     private var audioTracks: List<Track> = emptyList()
@@ -70,6 +73,18 @@ class MainActivity : AppCompatActivity() {
     private var detailTitle: String = ""
     private var query: String = ""
     private var lastPlayingKey: String? = null
+
+    // Select mode (v1.1.0): selection holds track keys — stable across
+    // sort/filter/tab switches. The bottom bar adds all selected tracks to
+    // the playlist at once.
+    private var selectMode = false
+    private val selection = mutableSetOf<String>()
+
+    private val selectBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            exitSelectMode()
+        }
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private val miniPlayerUpdater = object : Runnable {
@@ -107,6 +122,9 @@ class MainActivity : AppCompatActivity() {
         sortButton = findViewById(R.id.sort_button)
         settingsButton = findViewById(R.id.settings_button)
         emptyText = findViewById(R.id.empty_text)
+        selectBar = findViewById(R.id.select_bar)
+        selectAddButton = findViewById(R.id.select_add_button)
+        selectCancelButton = findViewById(R.id.select_cancel_button)
 
         tabMusic.setOnClickListener { switchMode(Mode.MUSIC) }
         tabVideo.setOnClickListener { switchMode(Mode.VIDEO) }
@@ -147,6 +165,9 @@ class MainActivity : AppCompatActivity() {
             refreshMiniPlayer()
         }
 
+        selectAddButton.setOnClickListener { addSelectionToPlaylist() }
+        selectCancelButton.setOnClickListener { exitSelectMode() }
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (mode == Mode.FOLDER_DETAIL || mode == Mode.PLAYLIST) {
@@ -157,6 +178,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+        // Added after the folder back callback, so it takes priority when enabled.
+        onBackPressedDispatcher.addCallback(this, selectBackCallback)
 
         refreshList()
     }
@@ -197,7 +220,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(
                     this,
-                    "अनुमति के बिना लाइब्रेरी नहीं दिखेगी",
+                    "Media permission is needed to show your library",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -288,33 +311,34 @@ class MainActivity : AppCompatActivity() {
             secondary
         )
         sortButton.text =
-            if (Prefs.sortBy(this) == Prefs.SORT_DATE) "तारीख: नई पहले" else "नाम: A-Z"
+            if (Prefs.sortBy(this) == Prefs.SORT_DATE) "Date: Newest first" else "Name: A-Z"
         headerTitle.text = when (mode) {
             Mode.FOLDER_DETAIL, Mode.PLAYLIST -> detailTitle
             else -> getString(R.string.app_name)
         }
         when (mode) {
             Mode.MUSIC -> {
-                emptyText.text = "कोई गाना नहीं मिला"
+                emptyText.text = "No songs found"
                 showTracks(filtered(audioTracks))
             }
             Mode.VIDEO -> {
-                emptyText.text = "कोई वीडियो नहीं मिला"
+                emptyText.text = "No videos found"
                 showTracks(filtered(videoTracks))
             }
             Mode.FOLDERS -> {
-                emptyText.text = "कोई फ़ोल्डर नहीं मिला"
+                emptyText.text = "No folders found"
                 showFolders()
             }
             Mode.FOLDER_DETAIL -> {
-                emptyText.text = "इस फ़ोल्डर में कुछ नहीं है"
+                emptyText.text = "Nothing in this folder"
                 showTracks(filtered(detailTracks))
             }
             Mode.PLAYLIST -> {
-                emptyText.text = "Playlist खाली है — किसी गाने/वीडियो को देर तक दबाकर जोड़ें"
+                emptyText.text = "Playlist is empty — long-press a song or video to add it"
                 showTracks(filtered(detailTracks))
             }
         }
+        updateSelectBar()
     }
 
     private fun highlightTab(tab: TextView, selected: Boolean, accent: Int, secondary: Int) {
@@ -328,8 +352,10 @@ class MainActivity : AppCompatActivity() {
         val tint = ThemeTint.accentBackground(this, accent, 0.10f)
         headerRow.setBackgroundColor(tint)
         tabsRow.setBackgroundColor(tint)
+        selectBar.setBackgroundColor(tint)
         sortButton.setTextColor(accent)
         settingsButton.setTextColor(accent)
+        selectAddButton.setTextColor(accent)
         miniPlayPause.imageTintList = ColorStateList.valueOf(
             ContextCompat.getColor(this, android.R.color.white)
         )
@@ -340,11 +366,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTracks(tracks: List<Track>) {
         emptyText.visibility = if (tracks.isEmpty()) View.VISIBLE else View.GONE
-        listView.adapter = TrackAdapter(this, tracks)
+        val adapter = TrackAdapter(this, tracks)
+        adapter.selectMode = selectMode
+        adapter.selection = selection
+        listView.adapter = adapter
         listView.onItemClickListener =
             AdapterView.OnItemClickListener { _, _, position, _ ->
                 val list = (listView.adapter as TrackAdapter).items
                 val track = list[position]
+                if (selectMode) {
+                    toggleSelection(track)
+                    return@OnItemClickListener
+                }
                 playFromList(list, position)
                 if (track.isVideo) {
                     startActivity(Intent(this, PlayerActivity::class.java))
@@ -355,7 +388,12 @@ class MainActivity : AppCompatActivity() {
         listView.onItemLongClickListener =
             AdapterView.OnItemLongClickListener { _, _, position, _ ->
                 val list = (listView.adapter as TrackAdapter).items
-                showTrackOptions(list[position])
+                val track = list[position]
+                if (selectMode) {
+                    toggleSelection(track)
+                } else {
+                    showTrackOptions(track)
+                }
                 true
             }
     }
@@ -389,34 +427,35 @@ class MainActivity : AppCompatActivity() {
         PlayerManager.play(this, list, position)
     }
 
+    /**
+     * Long-press menu (v1.1.0): replaces the old direct long-press playlist
+     * toggle. "Play as Audio" appears for videos only.
+     */
     private fun showTrackOptions(track: Track) {
         val inPlaylist = PlaylistStore.contains(this, track)
-        val options = arrayOf(
-            "चलाएं",
-            if (inPlaylist) "Playlist से हटाएं" else "Playlist में जोड़ें"
-        )
+        val items = mutableListOf<String>()
+        if (track.isVideo) items.add("Play as Audio")
+        items.add("Select")
+        items.add(if (inPlaylist) "Remove from Playlist" else "Add to Playlist")
         AlertDialog.Builder(this)
             .setTitle(track.title)
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> {
+            .setItems(items.toTypedArray()) { _, which ->
+                when (items[which]) {
+                    "Play as Audio" -> {
                         val list = (listView.adapter as? TrackAdapter)?.items ?: return@setItems
                         val idx = list.indexOf(track)
                         if (idx >= 0) {
-                            playFromList(list, idx)
-                            if (track.isVideo) {
-                                startActivity(Intent(this, PlayerActivity::class.java))
-                            } else {
-                                refreshMiniPlayer()
-                            }
+                            PlayerManager.playAsAudio(this, list, idx)
+                            startActivity(Intent(this, PlayerActivity::class.java))
                         }
                     }
-                    1 -> {
+                    "Select" -> enterSelectMode(track)
+                    "Add to Playlist", "Remove from Playlist" -> {
                         if (inPlaylist) PlaylistStore.remove(this, track)
                         else PlaylistStore.add(this, track)
                         Toast.makeText(
                             this,
-                            if (inPlaylist) "Playlist से हटाया गया" else "Playlist में जोड़ा गया",
+                            if (inPlaylist) "Removed from Playlist" else "Added to Playlist",
                             Toast.LENGTH_SHORT
                         ).show()
                         if (mode == Mode.PLAYLIST) {
@@ -430,10 +469,64 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun enterSelectMode(track: Track) {
+        selectMode = true
+        selection.add(track.key)
+        selectBackCallback.isEnabled = true
+        syncAdapterSelection()
+        updateSelectBar()
+    }
+
+    private fun toggleSelection(track: Track) {
+        if (!selection.remove(track.key)) selection.add(track.key)
+        if (selection.isEmpty()) {
+            exitSelectMode()
+            return
+        }
+        syncAdapterSelection()
+        updateSelectBar()
+    }
+
+    private fun exitSelectMode() {
+        selectMode = false
+        selection.clear()
+        selectBackCallback.isEnabled = false
+        syncAdapterSelection()
+        updateSelectBar()
+    }
+
+    private fun syncAdapterSelection() {
+        (listView.adapter as? TrackAdapter)?.let {
+            it.selectMode = selectMode
+            it.selection = selection
+            it.notifyDataSetChanged()
+        }
+    }
+
+    private fun updateSelectBar() {
+        val show = selectMode && selection.isNotEmpty()
+        selectBar.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) selectAddButton.text = "Add to Playlist (${selection.size})"
+    }
+
+    private fun addSelectionToPlaylist() {
+        val all = audioTracks + videoTracks
+        val selected = selection.mapNotNull { key -> all.find { it.key == key } }
+        val added = PlaylistStore.addAll(this, selected)
+        Toast.makeText(this, "$added added to Playlist", Toast.LENGTH_SHORT).show()
+        if (mode == Mode.PLAYLIST) {
+            detailTracks = PlaylistStore.resolve(this, audioTracks + videoTracks)
+        }
+        exitSelectMode()
+        refreshList()
+    }
+
     private fun refreshMiniPlayer() {
         val player = PlayerManager.player
         val track = PlayerManager.current
-        if (player == null || track == null || track.isVideo) {
+        // v1.1.0: the mini-player also shows for a video (background play
+        // video) — tapping it returns to the full player mid-playback.
+        if (player == null || track == null) {
             miniPlayer.visibility = View.GONE
             return
         }

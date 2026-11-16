@@ -43,9 +43,11 @@ class PlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        // Notification dismissed / service stopped: stop background audio, keep the
-        // player and queue so the app can resume from the mini-player.
-        PlayerManager.pauseIfAudio()
+        // Notification dismissed / service stopped: pause whatever was
+        // playing through the service (audio, audio-mode video, or a
+        // backgrounded video). Watching a video in the foreground is not
+        // affected. Keep the player and queue so the app can resume.
+        PlayerManager.pauseForServiceStop()
         mediaSession?.let { removeSession(it) }
         mediaSession?.release()
         mediaSession = null
@@ -66,7 +68,7 @@ class PlayerService : MediaSessionService() {
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("SP Player")
-            .setContentText("Audio chal raha hai")
+            .setContentText("Playing audio")
             .setOngoing(true)
             .build()
         startForeground(

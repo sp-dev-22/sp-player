@@ -36,19 +36,115 @@ object PlayerManager {
     val current: Track?
         get() = queue.getOrNull(currentIndex)
 
+    /**
+     * Play Video as Audio (v1.1.0): the current video is playing audio-only
+     * (audio panel shown, video surface detached). Session state, NOT a
+     * persisted pref. Resets to false whenever the current track changes —
+     * each new track starts in its natural mode. Changing it also switches
+     * the active sleep timer to the new effective mode.
+     */
+    var audioOnly: Boolean = false
+        set(value) {
+            field = value
+            setActiveSleepMode(isEffectiveVideo)
+        }
+
+    /** Effective video mode: a video track NOT in audio-only mode. */
+    val isEffectiveVideo: Boolean
+        get() = current?.isVideo == true && !audioOnly
+
+    /**
+     * True while the app is backgrounded (PlayerActivity.onStop ran, onStart
+     * has not). Used to decide whether stopping the service should pause
+     * playback (see pauseForServiceStop).
+     */
+    var isBackgrounded: Boolean = false
+
     /** Manually picked subtitle for the current video (null = auto .srt / none). */
     private var manualSubtitleUri: Uri? = null
 
     private var appContext: Context? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var sleepRunnable: Runnable? = null
-    private var sleepEndsAtMs: Long = 0
 
-    val sleepRemainingMs: Long
-        get() {
-            if (sleepRunnable == null) return 0
-            return (sleepEndsAtMs - System.currentTimeMillis()).coerceAtLeast(0)
+    // --- Separate sleep timers (v1.1.0): one per mode. Only the current
+    // effective mode's timer ticks; switching modes freezes the other
+    // timer's countdown (remaining time kept, resumes on return). ---
+    private class SleepTimer {
+        /** Remaining time when frozen (not counting down). */
+        var remainingMs: Long = 0
+
+        /** Deadline when counting down (0 = not running). */
+        var endsAtMs: Long = 0
+    }
+
+    private val audioSleep = SleepTimer()
+    private val videoSleep = SleepTimer()
+    private var sleepRunnable: Runnable? = null
+    private var sleepRunnableForVideo: Boolean = false
+
+    fun sleepRemainingMs(forVideo: Boolean): Long {
+        val t = if (forVideo) videoSleep else audioSleep
+        return if (t.endsAtMs > 0) {
+            (t.endsAtMs - System.currentTimeMillis()).coerceAtLeast(0)
+        } else {
+            t.remainingMs
         }
+    }
+
+    fun startSleepTimer(minutes: Int, forVideo: Boolean) {
+        val t = if (forVideo) videoSleep else audioSleep
+        if (sleepRunnable != null && sleepRunnableForVideo == forVideo) {
+            mainHandler.removeCallbacks(sleepRunnable!!)
+            sleepRunnable = null
+        }
+        t.remainingMs = (minutes * 60_000L).coerceAtLeast(0)
+        t.endsAtMs = 0
+        if (minutes <= 0) return
+        // Only the current mode's timer ticks; a timer set for the other
+        // mode waits frozen until that mode becomes active.
+        if (forVideo == isEffectiveVideo) resumeSleepTimer(forVideo)
+    }
+
+    fun cancelSleepTimer(forVideo: Boolean) {
+        if (sleepRunnable != null && sleepRunnableForVideo == forVideo) {
+            mainHandler.removeCallbacks(sleepRunnable!!)
+            sleepRunnable = null
+        }
+        val t = if (forVideo) videoSleep else audioSleep
+        t.remainingMs = 0
+        t.endsAtMs = 0
+    }
+
+    /** Freeze the inactive mode's timer, resume this mode's timer if it has time left. */
+    fun setActiveSleepMode(forVideo: Boolean) {
+        if (sleepRunnable != null && sleepRunnableForVideo != forVideo) {
+            val t = if (sleepRunnableForVideo) videoSleep else audioSleep
+            t.remainingMs = (t.endsAtMs - System.currentTimeMillis()).coerceAtLeast(0)
+            t.endsAtMs = 0
+            mainHandler.removeCallbacks(sleepRunnable!!)
+            sleepRunnable = null
+        }
+        val t = if (forVideo) videoSleep else audioSleep
+        if (t.remainingMs > 0 && t.endsAtMs == 0L) resumeSleepTimer(forVideo)
+    }
+
+    private fun resumeSleepTimer(forVideo: Boolean) {
+        val t = if (forVideo) videoSleep else audioSleep
+        if (t.remainingMs <= 0) return
+        t.endsAtMs = System.currentTimeMillis() + t.remainingMs
+        val runnable = Runnable {
+            sleepRunnable = null
+            t.remainingMs = 0
+            t.endsAtMs = 0
+            player?.pause()
+            appContext?.let {
+                Toast.makeText(it, "Sleep timer: playback paused", Toast.LENGTH_SHORT).show()
+            }
+        }
+        sleepRunnable = runnable
+        sleepRunnableForVideo = forVideo
+        mainHandler.postDelayed(runnable, t.remainingMs)
+    }
 
     fun getOrCreatePlayer(context: Context): ExoPlayer {
         appContext = context.applicationContext
@@ -64,12 +160,18 @@ object PlayerManager {
         )
         exo.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val oldIndex = currentIndex
                 currentIndex = exo.currentMediaItemIndex
                 manualSubtitleUri = null
+                // A new track starts in its natural mode. Only reset when
+                // the index actually changed: the transition also fires on
+                // the initial prepare, where play()/playAsAudio already set
+                // audioOnly for the starting track.
+                if (oldIndex != -1 && oldIndex != currentIndex) audioOnly = false
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Toast.makeText(ctx, "यह फ़ाइल नहीं चल पाई", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "This file could not be played", Toast.LENGTH_SHORT).show()
                 if (exo.hasNextMediaItem()) exo.seekToNextMediaItem() else exo.stop()
             }
         })
@@ -80,24 +182,66 @@ object PlayerManager {
     }
 
     /** Play [tracks] starting at [index]. Queue = the list playback started from. */
-    fun play(context: Context, tracks: List<Track>, index: Int) {
+    fun play(context: Context, tracks: List<Track>, index: Int, asAudio: Boolean = false) {
         if (tracks.isEmpty() || index !in tracks.indices) return
         val exo = getOrCreatePlayer(context)
         manualSubtitleUri = null
+        isBackgrounded = false // a new play() is always user-initiated in the foreground
+        audioOnly = asAudio
         queue = tracks
         currentIndex = index
         val items = tracks.map { buildMediaItem(it, null) }
         exo.setMediaItems(items, index, 0L)
         exo.prepare()
         exo.play()
+        // The audioOnly setter above ran before the queue was set, so switch
+        // the active sleep timer again now that the track is final.
+        setActiveSleepMode(isEffectiveVideo)
         val appCtx = context.applicationContext
-        if (tracks[index].isVideo) {
+        if (tracks[index].isVideo && !asAudio) {
             // No notification while watching video; the service is audio-only.
             appCtx.stopService(Intent(appCtx, PlayerService::class.java))
         } else {
             // Background audio: keep the session service alive for the notification.
-            ContextCompat.startForegroundService(appCtx, Intent(appCtx, PlayerService::class.java))
+            ensureServiceRunning(appCtx)
         }
+    }
+
+    /** Play a video directly in audio-only mode (long-press menu). */
+    fun playAsAudio(context: Context, tracks: List<Track>, index: Int) {
+        play(context, tracks, index, asAudio = true)
+    }
+
+    /** Start the session service; safe to call when it is already running. */
+    fun ensureServiceRunning(context: Context) {
+        val appCtx = context.applicationContext
+        ContextCompat.startForegroundService(appCtx, Intent(appCtx, PlayerService::class.java))
+    }
+
+    /**
+     * App backgrounded during playback (PlayerActivity.onStop). Audio always
+     * keeps playing. Video keeps playing (audio continues) when the
+     * "Background play video" setting is ON, or when the video is in audio
+     * mode; otherwise the video pauses (v1.0.x behaviour).
+     */
+    fun onAppBackgrounded(context: Context) {
+        val track = current ?: return
+        if (!track.isVideo || audioOnly) return // audio already keeps playing; service running
+        if (Prefs.bgVideo(context)) {
+            ensureServiceRunning(context)
+        } else {
+            player?.pause()
+        }
+    }
+
+    /**
+     * Pause when the session service stops (notification dismissed). Audio
+     * (and audio-mode video) always pauses. A video in video mode only
+     * pauses if the app is backgrounded — stopping the service while
+     * watching a video in the foreground must NOT pause it.
+     */
+    fun pauseForServiceStop() {
+        if (!isEffectiveVideo || isBackgrounded) player?.pause()
     }
 
     fun togglePlayPause() {
@@ -137,16 +281,6 @@ object PlayerManager {
         player?.repeatMode = mode
     }
 
-    /** Video pauses when the app backgrounds (battery). Audio keeps playing. */
-    fun pauseIfVideo() {
-        if (current?.isVideo == true) player?.pause()
-    }
-
-    /** Pause audio (used when the notification is dismissed / service stops). */
-    fun pauseIfAudio() {
-        if (current?.isVideo == false) player?.pause()
-    }
-
     /** Rebuild the current video item with a manually picked subtitle, keeping position. */
     fun setManualSubtitle(context: Context, uri: Uri?) {
         val exo = player ?: return
@@ -158,27 +292,6 @@ object PlayerManager {
         exo.setMediaItem(buildMediaItem(track, uri), pos)
         exo.prepare()
         if (wasPlaying) exo.play()
-    }
-
-    fun startSleepTimer(minutes: Int) {
-        cancelSleepTimer()
-        if (minutes <= 0) return
-        sleepEndsAtMs = System.currentTimeMillis() + minutes * 60_000L
-        val runnable = Runnable {
-            sleepRunnable = null
-            player?.pause()
-            appContext?.let {
-                Toast.makeText(it, "Sleep timer: प्लेबैक रुक गया", Toast.LENGTH_SHORT).show()
-            }
-        }
-        sleepRunnable = runnable
-        mainHandler.postDelayed(runnable, minutes * 60_000L)
-    }
-
-    fun cancelSleepTimer() {
-        sleepRunnable?.let { mainHandler.removeCallbacks(it) }
-        sleepRunnable = null
-        sleepEndsAtMs = 0
     }
 
     private fun buildMediaItem(track: Track, subtitleUri: Uri?): MediaItem {

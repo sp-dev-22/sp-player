@@ -38,4 +38,16 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!-- Select-mode checkbox (v1.1.0): GONE by default, VISIBLE in select
+         mode. Not clickable/focusable — the row click toggles selection. -->
+    <CheckBox
+        android:id="@+id/track_select"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="8dp"
+        android:clickable="false"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
+        android:visibility="gone" />
+
 </LinearLayout>

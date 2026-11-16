@@ -39,11 +39,11 @@ class FolderAdapter(
         val countView: TextView = view.findViewById(R.id.folder_count)
         if (isPlaylistRow(position)) {
             nameView.text = "My Playlist"
-            countView.text = "$playlistCount गाने/वीडियो"
+            countView.text = "$playlistCount songs/videos"
         } else {
             val folder = folderAt(position)
             nameView.text = folder.name
-            countView.text = "${folder.tracks.size} फ़ाइलें"
+            countView.text = "${folder.tracks.size} files"
         }
         return view
     }

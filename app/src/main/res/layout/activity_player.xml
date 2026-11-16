@@ -28,6 +28,34 @@
         android:textSize="16sp"
         android:visibility="gone" />
 
+    <!-- Video sleep countdown (v1.1.0): top-LEFT, so it never collides with
+         the unlock button (top-right). -->
+    <TextView
+        android:id="@+id/video_sleep_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
+        android:background="#CC000000"
+        android:padding="8dp"
+        android:textColor="@android:color/white"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <!-- Screen-lock unlock button (v1.1.0): shown top-right when the locked
+         screen is tapped, hides again after 2s if unused. -->
+    <ImageButton
+        android:id="@+id/unlock_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:background="#CC000000"
+        android:contentDescription="Unlock"
+        android:src="@drawable/ic_lock"
+        android:tint="@android:color/white"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/audio_panel"
         android:layout_width="match_parent"
@@ -155,6 +183,15 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Sleep" />
+
+            <Button
+                android:id="@+id/btn_video_mode"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Video"
+                android:visibility="gone" />
         </LinearLayout>
 
         <LinearLayout
@@ -183,7 +220,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Playlist में जोड़ें" />
+            android:text="Add to Playlist" />
 
         <TextView
             android:id="@+id/sleep_text"
