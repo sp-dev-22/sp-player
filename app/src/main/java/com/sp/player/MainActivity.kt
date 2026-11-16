@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -35,6 +36,7 @@ import com.sp.player.player.Track
 import com.sp.player.ui.FolderAdapter
 import com.sp.player.ui.ThemeTint
 import com.sp.player.ui.TrackAdapter
+import java.net.URLEncoder
 
 class MainActivity : AppCompatActivity() {
 
@@ -62,7 +64,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsButton: Button
     private lateinit var emptyText: TextView
     private lateinit var selectBar: LinearLayout
-    private lateinit var selectAddButton: Button
+    private lateinit var selectActionButton: Button
     private lateinit var selectCancelButton: Button
 
     private var mode = Mode.MUSIC
@@ -123,7 +125,7 @@ class MainActivity : AppCompatActivity() {
         settingsButton = findViewById(R.id.settings_button)
         emptyText = findViewById(R.id.empty_text)
         selectBar = findViewById(R.id.select_bar)
-        selectAddButton = findViewById(R.id.select_add_button)
+        selectActionButton = findViewById(R.id.select_add_button)
         selectCancelButton = findViewById(R.id.select_cancel_button)
 
         tabMusic.setOnClickListener { switchMode(Mode.MUSIC) }
@@ -165,7 +167,12 @@ class MainActivity : AppCompatActivity() {
             refreshMiniPlayer()
         }
 
-        selectAddButton.setOnClickListener { addSelectionToPlaylist() }
+        // v1.1.1: the bar's action depends on where you are — inside the
+        // Playlist it removes, everywhere else it adds.
+        selectActionButton.setOnClickListener {
+            if (mode == Mode.PLAYLIST) removeSelectionFromPlaylist()
+            else addSelectionToPlaylist()
+        }
         selectCancelButton.setOnClickListener { exitSelectMode() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -355,7 +362,7 @@ class MainActivity : AppCompatActivity() {
         selectBar.setBackgroundColor(tint)
         sortButton.setTextColor(accent)
         settingsButton.setTextColor(accent)
-        selectAddButton.setTextColor(accent)
+        selectActionButton.setTextColor(accent)
         miniPlayPause.imageTintList = ColorStateList.valueOf(
             ContextCompat.getColor(this, android.R.color.white)
         )
@@ -436,6 +443,7 @@ class MainActivity : AppCompatActivity() {
         val items = mutableListOf<String>()
         if (track.isVideo) items.add("Play as Audio")
         items.add("Select")
+        items.add("Search on YT")
         items.add(if (inPlaylist) "Remove from Playlist" else "Add to Playlist")
         AlertDialog.Builder(this)
             .setTitle(track.title)
@@ -450,6 +458,25 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     "Select" -> enterSelectMode(track)
+                    // v1.1.1: search the track's title on YouTube. The
+                    // search opens in the YouTube app or the browser —
+                    // no internet permission needed (intent only).
+                    "Search on YT" -> {
+                        val query = URLEncoder.encode(track.title, "UTF-8")
+                        val intent = Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://www.youtube.com/results?search_query=$query")
+                        )
+                        try {
+                            startActivity(intent)
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            Toast.makeText(
+                                this,
+                                "No browser or YouTube app found",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
                     "Add to Playlist", "Remove from Playlist" -> {
                         if (inPlaylist) PlaylistStore.remove(this, track)
                         else PlaylistStore.add(this, track)
@@ -506,7 +533,14 @@ class MainActivity : AppCompatActivity() {
     private fun updateSelectBar() {
         val show = selectMode && selection.isNotEmpty()
         selectBar.visibility = if (show) View.VISIBLE else View.GONE
-        if (show) selectAddButton.text = "Add to Playlist (${selection.size})"
+        if (show) {
+            // v1.1.1: inside the Playlist the bar removes, not adds.
+            selectActionButton.text = if (mode == Mode.PLAYLIST) {
+                "Remove from Playlist (${selection.size})"
+            } else {
+                "Add to Playlist (${selection.size})"
+            }
+        }
     }
 
     private fun addSelectionToPlaylist() {
@@ -517,6 +551,18 @@ class MainActivity : AppCompatActivity() {
         if (mode == Mode.PLAYLIST) {
             detailTracks = PlaylistStore.resolve(this, audioTracks + videoTracks)
         }
+        exitSelectMode()
+        refreshList()
+    }
+
+    /** v1.1.1: remove the selected tracks from the Playlist (only offered
+     *  while viewing the Playlist — see updateSelectBar). */
+    private fun removeSelectionFromPlaylist() {
+        val all = audioTracks + videoTracks
+        val selected = selection.mapNotNull { key -> all.find { it.key == key } }
+        val removed = PlaylistStore.removeAll(this, selected)
+        Toast.makeText(this, "$removed removed from Playlist", Toast.LENGTH_SHORT).show()
+        detailTracks = PlaylistStore.resolve(this, audioTracks + videoTracks)
         exitSelectMode()
         refreshList()
     }

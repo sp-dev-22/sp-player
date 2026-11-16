@@ -3,6 +3,7 @@ package com.sp.player
 import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.media.AudioManager
@@ -10,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Rational
 import android.view.MotionEvent
 import android.view.View
@@ -269,8 +271,24 @@ class PlayerActivity : AppCompatActivity() {
         recreate()
     }
 
-    /** Picture-in-picture (v1.1.0): controller button only, never automatic. */
+    /** Picture-in-picture (v1.1.0, fixed v1.1.1): controller button only,
+     *  never automatic.
+     *
+     *  v1.1.0 ignored the boolean enterPictureInPictureMode() returns, so a
+     *  refusal looked like a dead button with no message. The usual refusal
+     *  is the per-app "Picture-in-picture" toggle in App info being OFF —
+     *  PiP does NOT need the "draw over other apps" permission. v1.1.1:
+     *  check device support first, then the return value, and guide the
+     *  user to App info when the toggle is the problem. */
     private fun enterPip() {
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            Toast.makeText(
+                this,
+                "Picture-in-picture is not supported on this device",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
         val player = PlayerManager.player ?: return
         val size = player.videoSize
         val ratio = if (size.width > 0 && size.height > 0) {
@@ -279,16 +297,32 @@ class PlayerActivity : AppCompatActivity() {
             Rational(16, 9)
         }
         try {
-            enterPictureInPictureMode(
+            val entered = enterPictureInPictureMode(
                 PictureInPictureParams.Builder().setAspectRatio(ratio).build()
             )
+            if (!entered) showPipUnavailableDialog()
         } catch (_: IllegalStateException) {
-            Toast.makeText(
-                this,
-                "Picture-in-picture is not available",
-                Toast.LENGTH_SHORT
-            ).show()
+            showPipUnavailableDialog()
         }
+    }
+
+    /** PiP was refused — almost always the per-app toggle in App info.
+     *  Offer a shortcut straight to this app's settings page. */
+    private fun showPipUnavailableDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Picture-in-picture is off")
+            .setMessage(
+                "Picture-in-picture is turned off for SP Player. " +
+                    "Turn it on in App info > Picture-in-picture."
+            )
+            .setPositiveButton("Open App Settings") { _, _ ->
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", packageName, null)
+                }
+                startActivity(intent)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun setLocked(value: Boolean) {

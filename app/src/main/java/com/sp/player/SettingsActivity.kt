@@ -1,9 +1,12 @@
 package com.sp.player
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.SwitchCompat
@@ -56,6 +59,26 @@ class SettingsActivity : AppCompatActivity() {
         bgVideoSwitch.setOnCheckedChangeListener { _, checked ->
             Prefs.setBgVideo(this, checked)
         }
+
+        // Download YT Video & Audio (v1.1.1): third-party site, opened in
+        // the browser — the app itself stays fully offline (intent only).
+        findViewById<Button>(R.id.genyt_button).setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://genyt.net"))
+            try {
+                startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                Toast.makeText(this, "No browser found", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Support page (v1.1.1).
+        findViewById<Button>(R.id.support_button).setOnClickListener {
+            startActivity(Intent(this, SupportActivity::class.java))
+        }
+
+        // Version from the build, so the footer never goes stale again.
+        findViewById<TextView>(R.id.version_text).text =
+            "SP Player v" + BuildConfig.VERSION_NAME
     }
 
     private fun refreshSelectedColor() {
