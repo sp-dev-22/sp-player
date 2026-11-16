@@ -51,8 +51,16 @@
                 android:id="@+id/swatch_orange"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
+                android:layout_marginEnd="12dp"
                 android:background="@color/accent_orange"
                 android:contentDescription="Orange" />
+
+            <Button
+                android:id="@+id/swatch_rainbow"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@color/accent_rainbow"
+                android:contentDescription="Rainbow" />
         </LinearLayout>
 
         <TextView
@@ -124,28 +132,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="YouTube"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <Button
-            android:id="@+id/genyt_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Download YT Video &amp; Audio (Third Party)" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Opens genyt.net in your browser"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
             android:text="Support"
             android:textSize="16sp"
             android:textStyle="bold" />
@@ -169,7 +155,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
-            android:text="SP Player v1.1.1"
+            android:text="SP Player v1.2.0"
             android:textColor="@color/text_secondary"
             android:textSize="14sp" />
 
