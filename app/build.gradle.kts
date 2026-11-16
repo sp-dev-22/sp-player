@@ -20,8 +20,8 @@ android {
         applicationId = "com.sp.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.1.1"
+        versionCode = 6
+        versionName = "1.2.0"
     }
 
     // BuildConfig (v1.1.1): Settings + Support show the version from the

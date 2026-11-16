@@ -10,8 +10,17 @@ object Prefs {
     const val ACCENT_BLUE = 0xFF2196F3.toInt()
     const val ACCENT_GREEN = 0xFF4CAF50.toInt()
     const val ACCENT_ORANGE = 0xFFFF9800.toInt()
-    val ACCENTS = listOf(ACCENT_PINK, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE)
-    val ACCENT_NAMES = listOf("Pink", "Blue", "Green", "Orange")
+    // Rainbow (v1.2.0): violet is the theme's representative colour (text,
+    // icons, system widgets); the mini-player and swatch show the full
+    // rainbow gradient instead of this flat colour.
+    const val ACCENT_RAINBOW = 0xFF7C4DFF.toInt()
+    val ACCENTS = listOf(
+        ACCENT_PINK, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_RAINBOW
+    )
+    val ACCENT_NAMES = listOf("Pink", "Blue", "Green", "Orange", "Rainbow")
+
+    /** True when the stored accent is the Rainbow theme. */
+    fun isRainbow(context: Context): Boolean = accent(context) == ACCENT_RAINBOW
 
     const val NIGHT_SYSTEM = 0
     const val NIGHT_LIGHT = 1

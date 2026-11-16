@@ -38,6 +38,13 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
     private val inflater = LayoutInflater.from(context)
     private val appContext = context.applicationContext
     private val defaultTitleColor = ThemeTint.textPrimary(context)
+    // v1.2.0 optimization: the accent and the now-playing highlight used to
+    // be read from SharedPreferences (and re-blended) for EVERY row bind.
+    // Adapters are recreated on every list refresh, so caching them here
+    // is always fresh — and scrolling no longer touches disk per row.
+    private val accent = Prefs.accent(context)
+    private val playingHighlight =
+        ThemeTint.accentBackground(context, accent, 0.16f)
 
     /** Select mode (v1.1.0): set by MainActivity; rows show a checkbox bound
      *  to [selection] (track keys, stable across sort/filter). */
@@ -77,11 +84,8 @@ class TrackAdapter(context: Context, val items: List<Track>) : BaseAdapter() {
         // Now-playing highlight: accent-tinted row + accent bold title.
         // Rows are recycled, so the else branch must reset both every time.
         if (PlayerManager.current?.key == track.key) {
-            val ctx = view.context
-            view.setBackgroundColor(
-                ThemeTint.accentBackground(ctx, Prefs.accent(ctx), 0.16f)
-            )
-            holder.title.setTextColor(Prefs.accent(ctx))
+            view.setBackgroundColor(playingHighlight)
+            holder.title.setTextColor(accent)
             holder.title.setTypeface(null, Typeface.BOLD)
         } else {
             view.setBackgroundColor(Color.TRANSPARENT)

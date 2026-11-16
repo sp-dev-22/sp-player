@@ -8,6 +8,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.sp.player.player.Prefs
+import com.sp.player.ui.ThemeTint
 
 /** Support page (v1.1.1): about SP Player, the developer, and links.
  *  All links open in the browser or YouTube app — the app itself stays
@@ -16,6 +17,8 @@ class SupportActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v1.2.0: theme variant for the chosen accent, before inflating.
+        setTheme(ThemeTint.themeFor(Prefs.accent(this)))
         setContentView(R.layout.activity_support)
 
         findViewById<TextView>(R.id.support_title).setTextColor(Prefs.accent(this))
@@ -27,6 +30,10 @@ class SupportActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.github_button).setOnClickListener {
             openLink("https://github.com/sp-dev-22/sp-player")
+        }
+        // v1.2.0: our website (projects portal).
+        findViewById<Button>(R.id.website_button).setOnClickListener {
+            openLink("https://sp-dev-22.github.io")
         }
         findViewById<Button>(R.id.share_button).setOnClickListener {
             val intent = Intent(Intent.ACTION_SEND).apply {

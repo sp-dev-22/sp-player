@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Typeface
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -36,7 +35,6 @@ import com.sp.player.player.Track
 import com.sp.player.ui.FolderAdapter
 import com.sp.player.ui.ThemeTint
 import com.sp.player.ui.TrackAdapter
-import java.net.URLEncoder
 
 class MainActivity : AppCompatActivity() {
 
@@ -70,6 +68,10 @@ class MainActivity : AppCompatActivity() {
     private var mode = Mode.MUSIC
     private var audioTracks: List<Track> = emptyList()
     private var videoTracks: List<Track> = emptyList()
+    // v1.2.0: one shared view of the whole library, so callers stop
+    // allocating a fresh concatenated list each time.
+    private val allTracks: List<Track>
+        get() = audioTracks + videoTracks
     private var folders: List<Folder> = emptyList()
     private var detailTracks: List<Track> = emptyList()
     private var detailTitle: String = ""
@@ -81,6 +83,11 @@ class MainActivity : AppCompatActivity() {
     // the playlist at once.
     private var selectMode = false
     private val selection = mutableSetOf<String>()
+
+    // v1.2.0: the theme this instance was created with. If the accent
+    // changed in Settings while we were away, onResume recreates so the
+    // system widgets pick up the new theme too.
+    private var appliedThemeRes = 0
 
     private val selectBackCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
@@ -105,6 +112,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         applyNightMode()
         super.onCreate(savedInstanceState)
+        // v1.2.0: pick the theme variant for the chosen accent before
+        // inflating, so system widgets follow the theme too.
+        appliedThemeRes = ThemeTint.themeFor(Prefs.accent(this))
+        setTheme(appliedThemeRes)
         setContentView(R.layout.activity_main)
 
         headerTitle = findViewById(R.id.header_title)
@@ -193,6 +204,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // v1.2.0: theme changed in Settings while we were away — recreate
+        // so dialogs/buttons pick up the new theme (applyAccent alone
+        // only re-tints our own views). The recreate re-runs onResume
+        // with the new theme, so this never loops.
+        if (ThemeTint.themeFor(Prefs.accent(this)) != appliedThemeRes) {
+            recreate()
+            return
+        }
         applyAccent()
         if (hasMediaPermission()) {
             permissionRow.visibility = View.GONE
@@ -355,7 +374,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyAccent() {
         val accent = Prefs.accent(this)
-        miniPlayer.setBackgroundColor(accent)
+        // Rainbow theme: the mini-player shows the full gradient.
+        if (Prefs.isRainbow(this)) {
+            miniPlayer.background = ThemeTint.rainbowDrawable()
+        } else {
+            miniPlayer.setBackgroundColor(accent)
+        }
         val tint = ThemeTint.accentBackground(this, accent, 0.10f)
         headerRow.setBackgroundColor(tint)
         tabsRow.setBackgroundColor(tint)
@@ -417,7 +441,7 @@ class MainActivity : AppCompatActivity() {
             AdapterView.OnItemClickListener { _, _, position, _ ->
                 if (adapter.isPlaylistRow(position)) {
                     detailTitle = "My Playlist"
-                    detailTracks = PlaylistStore.resolve(this, audioTracks + videoTracks)
+                    detailTracks = PlaylistStore.resolve(this, allTracks)
                     mode = Mode.PLAYLIST
                 } else {
                     val folder = adapter.folderAt(position)
@@ -443,7 +467,6 @@ class MainActivity : AppCompatActivity() {
         val items = mutableListOf<String>()
         if (track.isVideo) items.add("Play as Audio")
         items.add("Select")
-        items.add("Search on YT")
         items.add(if (inPlaylist) "Remove from Playlist" else "Add to Playlist")
         AlertDialog.Builder(this)
             .setTitle(track.title)
@@ -458,25 +481,6 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     "Select" -> enterSelectMode(track)
-                    // v1.1.1: search the track's title on YouTube. The
-                    // search opens in the YouTube app or the browser —
-                    // no internet permission needed (intent only).
-                    "Search on YT" -> {
-                        val query = URLEncoder.encode(track.title, "UTF-8")
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://www.youtube.com/results?search_query=$query")
-                        )
-                        try {
-                            startActivity(intent)
-                        } catch (_: android.content.ActivityNotFoundException) {
-                            Toast.makeText(
-                                this,
-                                "No browser or YouTube app found",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
                     "Add to Playlist", "Remove from Playlist" -> {
                         if (inPlaylist) PlaylistStore.remove(this, track)
                         else PlaylistStore.add(this, track)
@@ -487,7 +491,7 @@ class MainActivity : AppCompatActivity() {
                         ).show()
                         if (mode == Mode.PLAYLIST) {
                             detailTracks =
-                                PlaylistStore.resolve(this, audioTracks + videoTracks)
+                                PlaylistStore.resolve(this, allTracks)
                             refreshList()
                         }
                     }
@@ -544,12 +548,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addSelectionToPlaylist() {
-        val all = audioTracks + videoTracks
-        val selected = selection.mapNotNull { key -> all.find { it.key == key } }
+        val selected = selection.mapNotNull { key -> allTracks.find { it.key == key } }
         val added = PlaylistStore.addAll(this, selected)
         Toast.makeText(this, "$added added to Playlist", Toast.LENGTH_SHORT).show()
         if (mode == Mode.PLAYLIST) {
-            detailTracks = PlaylistStore.resolve(this, audioTracks + videoTracks)
+            detailTracks = PlaylistStore.resolve(this, allTracks)
         }
         exitSelectMode()
         refreshList()
@@ -558,11 +561,10 @@ class MainActivity : AppCompatActivity() {
     /** v1.1.1: remove the selected tracks from the Playlist (only offered
      *  while viewing the Playlist — see updateSelectBar). */
     private fun removeSelectionFromPlaylist() {
-        val all = audioTracks + videoTracks
-        val selected = selection.mapNotNull { key -> all.find { it.key == key } }
+        val selected = selection.mapNotNull { key -> allTracks.find { it.key == key } }
         val removed = PlaylistStore.removeAll(this, selected)
         Toast.makeText(this, "$removed removed from Playlist", Toast.LENGTH_SHORT).show()
-        detailTracks = PlaylistStore.resolve(this, audioTracks + videoTracks)
+        detailTracks = PlaylistStore.resolve(this, allTracks)
         exitSelectMode()
         refreshList()
     }
