@@ -2,7 +2,9 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // NOTE: no kotlin-android plugin — AGP 9 has built-in Kotlin support
+    // (enabled by default); applying org.jetbrains.kotlin.android alongside
+    // it fails with "Cannot add extension with name 'kotlin'".
 }
 
 android {
