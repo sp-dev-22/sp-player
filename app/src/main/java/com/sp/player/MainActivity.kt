@@ -33,6 +33,7 @@ import com.sp.player.player.PlayerManager
 import com.sp.player.player.Prefs
 import com.sp.player.player.Track
 import com.sp.player.ui.FolderAdapter
+import com.sp.player.ui.ThemeTint
 import com.sp.player.ui.TrackAdapter
 
 class MainActivity : AppCompatActivity() {
@@ -44,6 +45,8 @@ class MainActivity : AppCompatActivity() {
     private enum class Mode { MUSIC, VIDEO, FOLDERS, FOLDER_DETAIL, PLAYLIST }
 
     private lateinit var headerTitle: TextView
+    private lateinit var headerRow: LinearLayout
+    private lateinit var tabsRow: LinearLayout
     private lateinit var listView: ListView
     private lateinit var searchBox: EditText
     private lateinit var permissionRow: LinearLayout
@@ -66,11 +69,18 @@ class MainActivity : AppCompatActivity() {
     private var detailTracks: List<Track> = emptyList()
     private var detailTitle: String = ""
     private var query: String = ""
+    private var lastPlayingKey: String? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val miniPlayerUpdater = object : Runnable {
         override fun run() {
             refreshMiniPlayer()
+            // Move the now-playing row highlight when the track changes.
+            val key = PlayerManager.current?.key
+            if (key != lastPlayingKey) {
+                lastPlayingKey = key
+                (listView.adapter as? TrackAdapter)?.notifyDataSetChanged()
+            }
             handler.postDelayed(this, 500)
         }
     }
@@ -81,6 +91,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         headerTitle = findViewById(R.id.header_title)
+        headerRow = findViewById(R.id.header_row)
+        tabsRow = findViewById(R.id.tabs_row)
         listView = findViewById(R.id.list_view)
         searchBox = findViewById(R.id.search_box)
         permissionRow = findViewById(R.id.permission_row)
@@ -313,6 +325,9 @@ class MainActivity : AppCompatActivity() {
     private fun applyAccent() {
         val accent = Prefs.accent(this)
         miniPlayer.setBackgroundColor(accent)
+        val tint = ThemeTint.accentBackground(this, accent, 0.10f)
+        headerRow.setBackgroundColor(tint)
+        tabsRow.setBackgroundColor(tint)
         sortButton.setTextColor(accent)
         settingsButton.setTextColor(accent)
         miniPlayPause.imageTintList = ColorStateList.valueOf(

@@ -2,6 +2,7 @@ package com.sp.player
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.ColorStateList
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
@@ -27,6 +28,7 @@ import com.sp.player.player.PlayerManager
 import com.sp.player.player.PlaylistStore
 import com.sp.player.player.Prefs
 import com.sp.player.player.formatDuration
+import com.sp.player.ui.ThemeTint
 
 class PlayerActivity : AppCompatActivity() {
 
@@ -115,6 +117,12 @@ class PlayerActivity : AppCompatActivity() {
         volumeBar = findViewById(R.id.volume_bar)
         sleepText = findViewById(R.id.sleep_text)
 
+        // Theme wash on the full-player screen (audio panel; video shows the
+        // video itself, so the tint only matters here).
+        audioPanel.setBackgroundColor(
+            ThemeTint.accentBackground(this, Prefs.accent(this), 0.08f)
+        )
+
         if (isVideoMode) {
             audioPanel.visibility = View.GONE
             playerView.visibility = View.VISIBLE
@@ -165,6 +173,14 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupAudioUi() {
+        val accent = ColorStateList.valueOf(Prefs.accent(this))
+        seekBar.progressTintList = accent
+        seekBar.thumbTintList = accent
+        volumeBar.progressTintList = accent
+        volumeBar.thumbTintList = accent
+        btnPrev.imageTintList = accent
+        btnPlayPause.imageTintList = accent
+        btnNext.imageTintList = accent
         volumeBar.max = 100
         volumeBar.progress = Prefs.appVolume(this)
         volumeBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
