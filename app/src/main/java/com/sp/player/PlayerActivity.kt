@@ -1,13 +1,16 @@
 package com.sp.player
 
+import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Rational
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
@@ -35,6 +38,8 @@ class PlayerActivity : AppCompatActivity() {
 
     private lateinit var playerView: PlayerView
     private lateinit var gestureHint: TextView
+    private lateinit var videoSleepText: TextView
+    private lateinit var unlockButton: ImageButton
     private lateinit var audioPanel: LinearLayout
     private lateinit var audioTitle: TextView
     private lateinit var audioArtist: TextView
@@ -48,6 +53,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var btnRepeat: Button
     private lateinit var btnSpeed: Button
     private lateinit var btnSleep: Button
+    private lateinit var btnVideoMode: Button
     private lateinit var btnPlaylist: Button
     private lateinit var volumeBar: SeekBar
     private lateinit var sleepText: TextView
@@ -55,6 +61,12 @@ class PlayerActivity : AppCompatActivity() {
     private var isFullscreen = false
     private var isVideoMode = false
     private var userSeeking = false
+
+    // Screen lock (v1.1.0): when locked, all PlayerView touches are swallowed
+    // and the controller stays hidden. Tapping shows the unlock button
+    // top-right for 2s; tapping IT unlocks.
+    private var locked = false
+    private val unlockHideRunnable = Runnable { unlockButton.visibility = View.GONE }
 
     // Back in fullscreen exits fullscreen first (instead of leaving the
     // player). It goes through the fullscreen button itself so Media3's
@@ -86,7 +98,7 @@ class PlayerActivity : AppCompatActivity() {
                     // Session-only access is enough for this playback.
                 }
                 PlayerManager.setManualSubtitle(this, uri)
-                Toast.makeText(this, "Subtitle लग गया", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Subtitle applied", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -106,12 +118,16 @@ class PlayerActivity : AppCompatActivity() {
             finish()
             return
         }
-        isVideoMode = track.isVideo
+        // Effective mode: a video in audio-only mode shows the audio panel.
+        isVideoMode = PlayerManager.isEffectiveVideo
+        PlayerManager.setActiveSleepMode(isVideoMode)
         setContentView(R.layout.activity_player)
         onBackPressedDispatcher.addCallback(this, backCallback)
 
         playerView = findViewById(R.id.player_view)
         gestureHint = findViewById(R.id.gesture_hint)
+        videoSleepText = findViewById(R.id.video_sleep_text)
+        unlockButton = findViewById(R.id.unlock_button)
         audioPanel = findViewById(R.id.audio_panel)
         audioTitle = findViewById(R.id.audio_title)
         audioArtist = findViewById(R.id.audio_artist)
@@ -125,9 +141,12 @@ class PlayerActivity : AppCompatActivity() {
         btnRepeat = findViewById(R.id.btn_repeat)
         btnSpeed = findViewById(R.id.btn_speed)
         btnSleep = findViewById(R.id.btn_sleep)
+        btnVideoMode = findViewById(R.id.btn_video_mode)
         btnPlaylist = findViewById(R.id.btn_playlist)
         volumeBar = findViewById(R.id.volume_bar)
         sleepText = findViewById(R.id.sleep_text)
+
+        unlockButton.setOnClickListener { setLocked(false) }
 
         // Theme wash on the full-player screen (audio panel; video shows the
         // video itself, so the tint only matters here).
@@ -150,6 +169,15 @@ class PlayerActivity : AppCompatActivity() {
             playerView.findViewById<Button>(R.id.btn_subtitle_video)?.setOnClickListener {
                 subtitlePicker.launch(arrayOf("*/*"))
             }
+            playerView.findViewById<Button>(R.id.btn_audio_video)?.setOnClickListener {
+                switchToAudioMode()
+            }
+            playerView.findViewById<View>(R.id.btn_lock_video)?.setOnClickListener {
+                setLocked(true)
+            }
+            playerView.findViewById<View>(R.id.btn_pip_video)?.setOnClickListener {
+                enterPip()
+            }
             // Media3's own fullscreen hook: setting a listener is also what
             // makes the fullscreen button VISIBLE (PlayerControlView hides
             // it until a listener is set — v1.0.1 bug: no button at all).
@@ -159,17 +187,30 @@ class PlayerActivity : AppCompatActivity() {
             playerView.setFullscreenButtonClickListener { enter ->
                 setFullscreen(enter)
             }
+            // No notification while watching video (v1.0.x behaviour).
+            stopService(Intent(this, PlayerService::class.java))
             setupGestures()
         } else {
             playerView.visibility = View.GONE
             audioPanel.visibility = View.VISIBLE
+            // Audio (or audio-mode video) needs the session service for its
+            // notification — but only restart it if something is playing, so
+            // a dismissed notification stays dismissed for paused media.
+            if (PlayerManager.player?.isPlaying == true) {
+                PlayerManager.ensureServiceRunning(this)
+            }
             setupAudioUi()
         }
     }
 
     override fun onStart() {
         super.onStart()
-        if (isVideoMode) playerView.player = PlayerManager.player
+        PlayerManager.isBackgrounded = false
+        if (isVideoMode) {
+            playerView.player = PlayerManager.player
+            // Back in the foreground watching video: no notification needed.
+            stopService(Intent(this, PlayerService::class.java))
+        }
     }
 
     override fun onResume() {
@@ -185,9 +226,81 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Video pauses when the app backgrounds (battery). Audio keeps playing.
-        PlayerManager.pauseIfVideo()
+        // Background play: audio always keeps playing; video keeps playing
+        // (audio continues) when the setting is ON, else it pauses.
+        PlayerManager.onAppBackgrounded(this)
+        PlayerManager.isBackgrounded = true
         if (isVideoMode) playerView.player = null
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            // PiP shows only the video — no controller, no overlays.
+            playerView.hideController()
+            playerView.useController = false
+            videoSleepText.visibility = View.GONE
+            unlockButton.visibility = View.GONE
+        } else {
+            playerView.useController = true
+        }
+    }
+
+    /** Play Video as Audio: switch the current video to the audio panel.
+     *  Playback continues from the same position (no restart); the surface
+     *  detaches via recreate() -> onStop (playerView.player = null). */
+    private fun switchToAudioMode() {
+        if (isFullscreen) {
+            // Exit fullscreen first so the orientation returns to portrait.
+            val btn = playerView.findViewById<View>(R.id.exo_fullscreen)
+            if (btn != null) btn.performClick() else setFullscreen(false)
+        }
+        PlayerManager.audioOnly = true
+        PlayerManager.ensureServiceRunning(this)
+        recreate()
+    }
+
+    /** Switch an audio-mode video back to the video screen. */
+    private fun switchToVideoMode() {
+        PlayerManager.audioOnly = false
+        recreate()
+    }
+
+    /** Picture-in-picture (v1.1.0): controller button only, never automatic. */
+    private fun enterPip() {
+        val player = PlayerManager.player ?: return
+        val size = player.videoSize
+        val ratio = if (size.width > 0 && size.height > 0) {
+            Rational(size.width, size.height)
+        } else {
+            Rational(16, 9)
+        }
+        try {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder().setAspectRatio(ratio).build()
+            )
+        } catch (_: IllegalStateException) {
+            Toast.makeText(
+                this,
+                "Picture-in-picture is not available",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun setLocked(value: Boolean) {
+        if (value == locked) return
+        locked = value
+        handler.removeCallbacks(unlockHideRunnable)
+        unlockButton.visibility = View.GONE
+        if (value) {
+            playerView.hideController()
+        } else {
+            playerView.showController()
+        }
     }
 
     private fun setupAudioUi() {
@@ -246,14 +359,15 @@ class PlayerActivity : AppCompatActivity() {
         }
         btnSpeed.setOnClickListener { showSpeedDialog() }
         btnSleep.setOnClickListener { showSleepDialog() }
+        btnVideoMode.setOnClickListener { switchToVideoMode() }
         btnPlaylist.setOnClickListener {
             val t = PlayerManager.current ?: return@setOnClickListener
             if (PlaylistStore.contains(this, t)) {
                 PlaylistStore.remove(this, t)
-                Toast.makeText(this, "Playlist से हटाया गया", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Removed from Playlist", Toast.LENGTH_SHORT).show()
             } else {
                 PlaylistStore.add(this, t)
-                Toast.makeText(this, "Playlist में जोड़ा गया", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Added to Playlist", Toast.LENGTH_SHORT).show()
             }
             updateToggleButtons()
         }
@@ -267,8 +381,9 @@ class PlayerActivity : AppCompatActivity() {
             finish()
             return
         }
-        if (track.isVideo != isVideoMode) {
-            // Queue moved between audio and video (mixed queue) — rebuild the screen.
+        if (PlayerManager.isEffectiveVideo != isVideoMode) {
+            // Queue moved between audio and video (mixed queue), or the
+            // audio-only flag changed the effective mode — rebuild the screen.
             recreate()
             return
         }
@@ -276,6 +391,9 @@ class PlayerActivity : AppCompatActivity() {
             audioTitle.text = track.title
             audioArtist.text = track.artist
             audioArtist.visibility = if (track.artist.isBlank()) View.GONE else View.VISIBLE
+            // "Video" button only for a video playing in audio mode.
+            btnVideoMode.visibility =
+                if (track.isVideo && PlayerManager.audioOnly) View.VISIBLE else View.GONE
             val dur = player.duration.coerceAtLeast(0)
             val pos = player.currentPosition.coerceAtLeast(0)
             if (!userSeeking) {
@@ -287,10 +405,15 @@ class PlayerActivity : AppCompatActivity() {
             btnPlayPause.setImageResource(
                 if (player.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
             )
-            val rem = PlayerManager.sleepRemainingMs
+            val rem = PlayerManager.sleepRemainingMs(forVideo = false)
             sleepText.visibility = if (rem > 0) View.VISIBLE else View.GONE
             if (rem > 0) sleepText.text = "Sleep: " + formatDuration(rem)
             updateToggleButtons()
+        } else {
+            // Video sleep countdown, top-left of the video area.
+            val rem = PlayerManager.sleepRemainingMs(forVideo = true)
+            videoSleepText.visibility = if (rem > 0) View.VISIBLE else View.GONE
+            if (rem > 0) videoSleepText.text = "Sleep: " + formatDuration(rem)
         }
     }
 
@@ -309,8 +432,8 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed.text = "Speed: " + formatSpeed(Prefs.speed(this))
         val track = PlayerManager.current
         btnPlaylist.text =
-            if (track != null && PlaylistStore.contains(this, track)) "Playlist से हटाएं"
-            else "Playlist में जोड़ें"
+            if (track != null && PlaylistStore.contains(this, track)) "Remove from Playlist"
+            else "Add to Playlist"
     }
 
     private fun formatSpeed(s: Float): String {
@@ -328,23 +451,26 @@ class PlayerActivity : AppCompatActivity() {
                 updateToggleButtons()
                 dialog.dismiss()
             }
-            .setNegativeButton("बंद करें", null)
+            .setNegativeButton("Close", null)
             .show()
     }
 
     private fun showSleepDialog() {
         val minutes = intArrayOf(0, 5, 10, 15, 30, 45, 60)
-        val labels = arrayOf("Off", "5 मिनट", "10 मिनट", "15 मिनट", "30 मिनट", "45 मिनट", "60 मिनट")
+        val labels = arrayOf("Off", "5 min", "10 min", "15 min", "30 min", "45 min", "60 min")
+        // The dialog sets the timer for the CURRENT mode (audio-mode video
+        // counts as audio — it shows the audio panel).
+        val forVideo = isVideoMode
         AlertDialog.Builder(this)
             .setTitle("Sleep Timer")
             .setItems(labels) { _, which ->
                 val m = minutes[which]
                 if (m == 0) {
-                    PlayerManager.cancelSleepTimer()
-                    Toast.makeText(this, "Sleep timer बंद", Toast.LENGTH_SHORT).show()
+                    PlayerManager.cancelSleepTimer(forVideo)
+                    Toast.makeText(this, "Sleep timer off", Toast.LENGTH_SHORT).show()
                 } else {
-                    PlayerManager.startSleepTimer(m)
-                    Toast.makeText(this, "Sleep timer: $m मिनट", Toast.LENGTH_SHORT).show()
+                    PlayerManager.startSleepTimer(m, forVideo)
+                    Toast.makeText(this, "Sleep timer: $m min", Toast.LENGTH_SHORT).show()
                 }
                 updateProgress()
             }
@@ -371,6 +497,16 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun setupGestures() {
         playerView.setOnTouchListener { _, event ->
+            if (locked) {
+                // Locked: swallow everything so the controller can never
+                // reappear. A tap shows the unlock button (top-right) for 2s.
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    unlockButton.visibility = View.VISIBLE
+                    handler.removeCallbacks(unlockHideRunnable)
+                    handler.postDelayed(unlockHideRunnable, 2000)
+                }
+                return@setOnTouchListener true
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     gestureStartX = event.x

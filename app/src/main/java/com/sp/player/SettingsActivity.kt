@@ -6,6 +6,7 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.widget.SwitchCompat
 import com.sp.player.player.Prefs
 
 class SettingsActivity : AppCompatActivity() {
@@ -48,11 +49,18 @@ class SettingsActivity : AppCompatActivity() {
             // Applies immediately; activities recreate automatically.
             AppCompatDelegate.setDefaultNightMode(mode)
         }
+
+        // Background play video (v1.1.0): default ON.
+        val bgVideoSwitch = findViewById<SwitchCompat>(R.id.bg_video_switch)
+        bgVideoSwitch.isChecked = Prefs.bgVideo(this)
+        bgVideoSwitch.setOnCheckedChangeListener { _, checked ->
+            Prefs.setBgVideo(this, checked)
+        }
     }
 
     private fun refreshSelectedColor() {
         val current = Prefs.accent(this)
         val index = Prefs.ACCENTS.indexOf(current).coerceAtLeast(0)
-        selectedColorText.text = "चुना हुआ रंग: " + Prefs.ACCENT_NAMES[index]
+        selectedColorText.text = "Selected colour: " + Prefs.ACCENT_NAMES[index]
     }
 }
