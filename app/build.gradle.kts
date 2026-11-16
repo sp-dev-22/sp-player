@@ -20,8 +20,14 @@ android {
         applicationId = "com.sp.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.1.1"
+    }
+
+    // BuildConfig (v1.1.1): Settings + Support show the version from the
+    // build instead of a hardcoded string. Off by default since AGP 8.
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
