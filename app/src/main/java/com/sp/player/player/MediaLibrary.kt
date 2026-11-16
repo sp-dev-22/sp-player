@@ -52,7 +52,10 @@ object MediaLibrary {
                 tracks += Track(
                     id = id,
                     title = title,
-                    artist = c.stringOr(MediaStore.Audio.Media.ARTIST) ?: "",
+                    // MediaStore reports "<unknown>" for files without an
+                    // artist tag — show nothing instead of the literal text.
+                    artist = (c.stringOr(MediaStore.Audio.Media.ARTIST) ?: "")
+                        .let { if (it == "<unknown>") "" else it },
                     uri = ContentUris.withAppendedId(uri, id),
                     dataPath = dataPath,
                     durationMs = duration,
