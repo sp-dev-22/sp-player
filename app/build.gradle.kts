@@ -58,15 +58,15 @@ android {
 // Stable signing key: the debug keystore is committed as debug.keystore.b64
 // (text) and decoded before the build, so every APK installs as an update
 // over the last one. The binary keystore is git-ignored and never committed.
-// Configuration-cache rule: the task action must NOT capture script-level
-// vals (Gradle cannot serialize script object references). Paths travel as
-// file providers, which are serializable.
+// NOTE: this task captures script-level paths, which the configuration
+// cache cannot serialize — so the configuration cache stays OFF for this
+// project (see gradle.properties). Do NOT "fix" this with file providers:
+// `provider.get().asFile` does not compile in this Kotlin DSL script
+// (Gradle 9.3.1: `.get()` is an unresolved reference there).
+val keystoreFile = rootDir.resolve("debug.keystore")
+val keystoreB64File = rootDir.resolve("debug.keystore.b64")
 tasks.register("restoreDebugKeystore") {
-    val keystoreFileProvider = layout.projectDirectory.file("debug.keystore")
-    val keystoreB64FileProvider = layout.projectDirectory.file("debug.keystore.b64")
     doLast {
-        val keystoreFile = keystoreFileProvider.get().asFile
-        val keystoreB64File = keystoreB64FileProvider.get().asFile
         if (!keystoreFile.exists() && keystoreB64File.exists()) {
             // NOTE: fully-qualified java.util.Base64 does NOT compile in a
             // Kotlin DSL script — `java` is shadowed by the script's implicit
