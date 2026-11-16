@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -184,6 +185,13 @@ object PlayerManager {
         val builder = MediaItem.Builder()
             .setUri(track.uri)
             .setMediaId(track.key)
+            // Title/artist so the notification and lock screen show the song.
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .build()
+            )
         if (track.isVideo) {
             val sub = subtitleUri ?: findSidecarSrt(track)
             if (sub != null) {
