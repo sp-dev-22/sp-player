@@ -1,0 +1,102 @@
+name: Build APK
+
+# Tap "Run workflow" in the Actions tab to build on demand, or let it run
+# automatically whenever code lands on main or a v* tag is pushed.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+
+# Required so the workflow can attach the APK to a GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Gradle 9.3.1
+        run: |
+          curl -sSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-9.3.1/bin" >> "$GITHUB_PATH"
+
+      # A stable signing key means every APK installs as an *update* over the last
+      # one instead of failing with "package conflicts with an existing package".
+      # The keystore is committed as base64 text (debug.keystore.b64) and decoded
+      # here; the Gradle preBuild task does the same for local builds.
+      - name: Restore the signing keystore
+        run: |
+          if [ -f debug.keystore.b64 ]; then
+            base64 -d debug.keystore.b64 > debug.keystore
+            echo "Using the repository's stable signing keystore."
+          else
+            echo "No debug.keystore.b64 found - generating a throwaway key."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      # SP Player is fully offline: the build must fail if an INTERNET
+      # permission ever sneaks in (e.g. via a library manifest).
+      - name: Verify APK (no INTERNET permission)
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          "$AAPT" dump badging "$APK" | grep -E 'package:|sdkVersion|targetSdkVersion|uses-permission'
+          if "$AAPT" dump badging "$APK" | grep -q 'android.permission.INTERNET'; then
+            echo "ERROR: INTERNET permission found in the APK."
+            exit 1
+          fi
+          echo "OK: no INTERNET permission."
+
+      - name: Make a versioned copy of the APK
+        id: ver
+        run: |
+          VERSION=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          cp app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/sp-player-v${VERSION}.apk"
+          echo "Versioned APK: sp-player-v${VERSION}.apk"
+
+      - name: Upload APK (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sp-player-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # Each version gets its OWN release page (tag v<version>), holding
+      # only that version's APK.
+      - name: Attach versioned APK to its own Release (push to main)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: SP Player v${{ steps.ver.outputs.version }}
+          body: "SP Player v${{ steps.ver.outputs.version }} — offline audio-video player for low-end phones. Download sp-player-v${{ steps.ver.outputs.version }}.apk and install it on your phone."
+          files: app/build/outputs/apk/debug/sp-player-v${{ steps.ver.outputs.version }}.apk
+
+      - name: Attach versioned APK to its own Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SP Player ${{ github.ref_name }}
+          body: "SP Player ${{ github.ref_name }} — offline audio-video player for low-end phones. Download the APK below and install it on your phone."
+          files: app/build/outputs/apk/debug/sp-player-v${{ steps.ver.outputs.version }}.apk
