@@ -43,6 +43,17 @@ object PlaylistStore {
         if (list.remove(track.key)) save(context, list)
     }
 
+    /** Remove several tracks in one save. Returns how many were removed. */
+    fun removeAll(context: Context, tracks: List<Track>): Int {
+        val list = entries(context).toMutableList()
+        var removed = 0
+        for (track in tracks) {
+            if (list.remove(track.key)) removed++
+        }
+        if (removed > 0) save(context, list)
+        return removed
+    }
+
     /** Resolve stored keys to tracks from the current library, keeping playlist order. */
     fun resolve(context: Context, all: List<Track>): List<Track> {
         val byKey = all.associateBy { it.key }
