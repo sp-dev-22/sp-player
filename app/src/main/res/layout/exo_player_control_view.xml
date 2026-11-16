@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Custom Media3 controller: standard controls (library @id/ ids, wired by
-     PlayerView) plus SP Player extras (speed / sleep / subtitle, wired by
-     PlayerActivity). Media3 1.3.1 uses ONE play/pause toggle button
-     (exo_play_pause) — separate exo_play/exo_pause buttons are NOT looked up
-     by PlayerControlView at all (v1.0.1 bug: both showed, neither worked).
-     The fullscreen button only becomes VISIBLE once PlayerActivity sets a
-     fullscreen listener on the PlayerView (PlayerControlView hides it
-     otherwise) — see PlayerActivity.setFullscreenButtonClickListener. -->
+     PlayerView) plus SP Player extras (speed / sleep / subtitle / audio,
+     lock, PiP — wired by PlayerActivity). Media3 1.3.1 uses ONE play/pause
+     toggle button (exo_play_pause) — separate exo_play/exo_pause buttons
+     are NOT looked up by PlayerControlView at all (v1.0.1 bug: both showed,
+     neither worked). The fullscreen button only becomes VISIBLE once
+     PlayerActivity sets a fullscreen listener on the PlayerView
+     (PlayerControlView hides it otherwise) — see
+     PlayerActivity.setFullscreenButtonClickListener. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -81,6 +82,24 @@
             android:layout_weight="1" />
 
         <ImageButton
+            android:id="@+id/btn_lock_video"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Lock screen"
+            android:src="@drawable/ic_lock"
+            android:tint="@android:color/white" />
+
+        <ImageButton
+            android:id="@+id/btn_pip_video"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Picture in picture"
+            android:src="@drawable/ic_pip"
+            android:tint="@android:color/white" />
+
+        <ImageButton
             android:id="@+id/exo_fullscreen"
             android:layout_width="40dp"
             android:layout_height="40dp"
@@ -118,6 +137,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Subtitle"
+            android:textColor="@android:color/white" />
+
+        <Button
+            android:id="@+id/btn_audio_video"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Audio"
             android:textColor="@android:color/white" />
     </LinearLayout>
 
